@@ -1,0 +1,30 @@
+def drive(motor_L, motor_R):
+	
+	
+
+def wall_mapping():
+	counter = 0
+	while counter < 4:
+		wall_following()
+		turn(-90)
+		counter += 1
+
+def wall_following():
+	while True:
+		if check_bumper() == True:
+			if IR_L - IR_R < THRESHOLD:
+				return
+			turn(dtheta)
+			move(dx)
+
+def object_mapping():
+	counter = 0
+	while True:
+		if check_hit_wall():
+			counter += 1
+			direction = (counter % 2 == 0 ?) -1: 1
+			turn(direction * 90)
+			move(dx)
+			turn(direction * 90)
+		if check_hit_object():
+			go_around_object()

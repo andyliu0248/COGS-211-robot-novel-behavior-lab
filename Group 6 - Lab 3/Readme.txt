@@ -1,0 +1,2 @@
+- This project folder contains a placeholder for the latest file to be compiled on KIPR KISS.
+- No more than one file containing the same function definitions should be placed in this folder. Compilers would be confused as to which definition to use. Save backup/historical versions of the same file in the respective "lab xxx" folders.

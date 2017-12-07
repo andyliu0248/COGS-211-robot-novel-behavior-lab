@@ -1,0 +1,186 @@
+  /*-----------------*/
+ /*  Lab 1: OCT 30  */
+/*-----------------*/
+
+***One line summary: Settled on the goal to be pursued: map the entire world, including walls and objects.
+
+How to demonstrate the robot has completely map the world?
+- Navigation
+- Should be able to detect anomaly if objects/wall bricks are removed.
+
+Alternatives ideas:
+- Transfer objects from one place to another
+  (would require new actuators)
+- Avoid objects
+  (already did this in ethology)
+- Self- and object-motion detection using optic flow and/or other visual cues
+  (KIPR library does not provide pixel access, only color blobs)
+
+  /*-----------------*/
+ /*  Lab 2: NOV 06  */
+/*-----------------*/
+
+*** One line summary: drew the follow charts & wrote the pseudocode for all functions.
+
+Basic structure:
+- Stage 1: Wall Mapping
+	+ keep track of robot's current (x, y) position and orientation angle (theta). Store in a global structure.
+	+ walk all four sides of the arena (how? arc cruise or straight cruise?)
+	  + if robot hits a corner, record the coordinate of that corner. Keep all coordinates in a global array (type: struct point).
+- Stage 2: Object Mapping
+	+ Walk the whole arena in some predetermined patterns (or random walk?)
+	+ if robot senses an object, then robot go around it to compute the object coordination and radius (assuming all objects are round).
+	+ store the center coordinates of an object in a global object array.
+	+ do this until the robot walks the whole arena.
+- Stage 3: Object Recognition (? Not sure how to do it)
+
+All tasks assumed some form of path integration, although at that time we did not know what we were trying to do--representing the position of self and updating the coordinate using inference from motors (proprioceptive feedback)--was called path integration. Neither did we know how exactly path integration can be achieved. I simply had a hunch that it could be done with the get_motor_position function from the KIPR library and some basic trigonometry.
+
+We did, however, broke down path integration into two components: (1) updating (x,y) coordinate when the robot is straight cruising (i.e. left motor speed = right motor speed = c), and (2) updating orientation (theta) when the robot is spinning in place (i.e. left motor speed = c = - right motor speed = -c). But I think the distinction between straight cruise and spining in place is an arbitrary one: we should be able to model the trajectory--i.e. all possible coordinates of (x, y, theta)--traced by the robot for any combination of left/right motor speed (L, R). Straight cruising (L=R) and spinning (L=-R) may very well be two special cases in the entire parameter space. However, there is also no problem using only the two subspaces (since they together span the entire three dimensional space consisting of points in the form (x, y, theta)), and in doing so we can drastically reduce the computational complexity, possibly by several orders of magnitudes. This might only work for two-wheel robots and other special robots with wheels mounted on a circular chassis. For any other configurations of motors (e.g. artificial ants), path integration might pose as a much more daunting problem.
+
+So naturally, the next step is to make sure that the robot, when instructed to do straight cruise, does trace a straight line, and that, when instructed to spin, it should spin in such a way that only changes the orientation theta but not the position (x,y).
+
+
+  /*-----------------*/
+ /*  Lab 3: NOV 13  */
+/*-----------------*/
+
+*** One line summary: straight cruise with fine-tuned open control loop + pseudocode for the rest
+
+// Time corresponds to the respective "*.c" files.
+
+// 13:47
+	Copied the Drive() function from .c file from robot ethology lab to current
+project.
+
+// 14:18
+	Tried to get the left motor spinning. One of the pins was broken and Ken got it repaired.
+
+// 14:18 copy
+	While waiting for robot to be repaired, added more function declarations and implemented several of them.
+
+// 14:56
+	Tested Drive() function but robot didn't go in straight line. Tried the following strategies:
+
+1. Increase the right motor for a small amount.
+Bugs: integer overflows when printing, wrong type declaration of RIGHT_MOTOR_OFFSET (set it to int instead of float). I made those mistakes mainly because I haven't used static-typing language (e.g. C) for a while. But eventually fixed those syntactic errors.
+
+But When left = right = 60, steers to the right. When left = 60 and right = 61, steers to the left. So an increase in activation by only 1 results in an overshoot. Need a more nuanced way to control motors. Solution: see next point
+
+2. For a certain delaySeconds = n, divide n into two intervals according to some ratio p, one lasting for n * p seconds in which right motor = left motor (normal_delay) and the other lasting for n * (1-p) seconds in which right = left + 1 so that we get more nuanced control. Key is to fine-tune the ratio p between those two intervals (adjust_ratio = adjust_delay / delaySeconds).
+
+	We know that when adjust_ratio = 0, i.e. right=left, the robot steered right (the 60/60 case); for adjust_ratio = 1, i.e. right=left + 1, the robot steered left (the 61/60 case). So adjust_ratio must be in between 0 and 1.
+
+	Tried the following values: adjust_ratio = 1/3, 1/2, 3/4. The last value almost worked, but due to time limit, didn't pursue further testing.
+
+	See the file "1559 Nov 13.c" for the version that has adjust_ratio = 3/4.
+
+
+// 17:25
+	Implemented the remaining functions. Eventually got everything compiled (eliminated syntax errors).
+	Went on to test Turn() function.
+	- Bug: even when the program terminated the robot didn't stop spinning.
+	- Fix: the msleep() function does not halt any motor event. The motor will continue to execute the last command if no new command is given. Hence, for every spin, have to manually tell the robot to stop spinning. Corresponding function in KIPR library is ao() to kill motor events for all motors, and off(<motor#>) to kill the motor specified by port <motor#>.
+
+
+
+  /*-------------------*/
+ /*  Lab 3.1: NOV 15  */
+/*-------------------*/
+
+// 19:08
+	Implemented Drive() function using PID. But only uses "P" (proportional control) for the moment, which seems to suffice, haven't implemented "I" and "D". But haven't fully tweaked the gain and right_motor_offset yet.
+
+  Basic idea:
+  - Initialize right_motor_offset to 0, and time for each cycle to some small interval (50-100 ms), right=left=0.6, gain = 0.005
+  - Run both motors with activation values specified above.
+  - At the end of each cycle, check how many ticks each motor has spun. Get error = left - right. feed the error back to step one: increment = gain * error. so left motor unchanged (still 0.6), but right = 0.6 * (1 + increment)
+
+// 21:22
+	Initially failed. Forgot why it failed.
+
+  Tried to use mrp(<motor#>,<velocity>,<ticks>) function in the KIPR library, but seems to be broken: motor never moved, and function signature was inconsistent even in the official documentation (I might have misunderstood it).
+
+  Switched to another robot, but a new problem arose. When the motor halts, two wheels slip by tiny, but different amounts. (Explanation: perhaps the coefficient of friction is different for each wheel.) As a result, the orientation of the robot is changed quite significantly (about 5-10 degrees) every time it stops. This is unwanted because we'd like to track the absolute orientation of the robot, provided ONLY the information about actual motor rotation counts. (If slipped, then robot translates although motor counter remains the same.)
+
+	To prevent this from happening, implemented a brake() function that sort of parallels the ABS (anti-lock braking system) systems in automobiles, i.e. instead of halting the motor abruptly (acceleration: 0 -> negative infinity -> 0), decreasing the speed gradually so that wheels maintain tractive contact with the group to prevent slippage (acceleration = some negative c).
+
+  Switched to our old robot, slippage was not as bad, but the ABS system always let the robot move a bit further than expected, so interferes with Drive() unless the brake distance is taken into account when internal repr is updated. This brings another level of complexity, so I gave up the ABS system altogether. [Looking back: 1. did not need ABS anyway because ended up halting by colliding with the wall. 2. could have got brake to work IF I used ticks to control drive in the first place. There is no need to introduce the correlation between delay seconds and ticks, so is there no need to use some kind of unit in the internal representation system enforced by human. (for example, cm for distance) If the robot is truly autonomous, and if there is no need for communication with the human, the robot should best to adopt its internal unit of measurements for representation. No human knowledge required.)
+
+  Then played with Drive_PID() function for a bit and eventually successfully tamed the parameters. Key:
+  - get_motor_position_counter(<motor#>) is unreliable for determining absolute rotations: right motor counter always falls behind left motor by a little. (Possible explanation: two wheels might be of different sizes, e.g. right wheel is larger than the left so that it rotates less for the same distance.) Thankfully, the discrepancy is linear and does not depend on the speed of the motor: for every 3000 ticks in both motors, right motor counter lags behind by about 60 ticks, so right motor is 1 tick short per 50 ticks. To fix this, tried two strategy:
+  	1. Fix this problem in the Drive_PID() function. Didn't work out: there was always a bug that prevented the corrected ticks from showing up.
+  	2. Wrapped get_motor_position_counter() inside another function, called corrected_motor_pos(). So don't have to worry about this complication outside the scope of this wrapper function. Inside it, set correction frequency to 1 tick / 50 ticks. Then scale the additional ticks according to the accumulated tick. For instance, if the current tick count is 3000, than add 3000 / 50 = 60 ticks to it and return 3000 + 60 = 3060.
+
+  Once Drive_PID() is fixed, can be reused to implement Turn(). Got this to working by tweaking angle_to_delay_seconds = 0.368. This parameter fluctuates a lot. (Hypothesis: battery is running low.) Actually, turning the wheel by counting ticks might be a better strategy, because irrelevant of how powerful battery is/how much power is given to each motor.
+
+  Worked out the conversion factor = 3695(L)/3696(R) ticks per 1710 degrees (=5 full turn but 90 deg short). So approx. 2.152 ticks per degree, or 123.3 ticks per radian.
+
+  But if Turn is implemented by a new function Drive_Ticks(), then code would be inelegant and hard to maintain. There is significant overlap between Drive_PID() used for straight cruise and Drive_Ticks used for turning. The only difference is the looping criterion, i.e. one checks for number of seconds elapsed and the other for number of ticks rotated. This is the task for next time.
+
+	Cleaned the code. Added comments and segmentations.
+
+  /*-------------------*/
+ /*  Lab 3.2: NOV 17  */
+/*-------------------*/
+
+// 16:29
+Confirmed that battery impacts Turn() function significantly. So cannot use Drive_PID() b/c it does not depend on motor ticks. Have to implement a version of Drive but instead it counts motor ticks rather than delay seconds.
+
+The only difference between Drive_PID() and Drive_Ticks() is the condition for the while loop. So theoretically can be done by using a unified Drive() function but takes in a criterion function (or some string that represents the criterion function) to control the while loop. The while loop would look like:
+  while criterion_function(<relevant parameters>):
+    ...
+in which criterion_function is a placeholder for some criterion function specified by the parent function that calls Drive()
+
+Calling Drive inside Turn would look like:
+-----------------------------------------------------------------
+	Drive(..., 'ticks', number_of_ticks)
+-----------------------------------------------------------------
+where 'ticks' is the message passed into Drive() that says, "Hey Drive, please loop until you have counted this number of motor ticks."
+
+And calling Drive() inside StraightCruise() would look like:
+-----------------------------------------------------------------
+	Drive(..., 'delay', number_of_delay_seconds)
+-----------------------------------------------------------------
+
+This idea that the looping condition change according to message passed in can be beautifully captured by higher-order functions. But C does not support functional programming paradigm. so after a lot of digging I eventually hacked it using function pointers. Defined two criterion function: ticks_condition and delay_condition, and a placeholder for the criterion *drive_condition. When Drive() receives a character that's either 't' (for 'ticks'), or 'd' for 'delay', it assigns either ticks_condition or delay_condition to *drive_condition, and use that to control the while loop. (If 't' is passed in, then assign &ticks_condition to the function pointer *drive_condition; else assign &delay_condition to it.)
+
+However, there is one more complication. Although we can assign different criterion function to *drive_condition, since C is static-type language, the functional signature for *drive_condition cannot be changed. That is, even though different criterion functions might be interested in different input parameters, the number and type of the parameters must be the same for all criterion functions, enforced by the signature of *drive_condition. Ideally, we would like to have:
+
+  ticks_condition = lambda current_ticks: current_ticks < #some number of ticks#
+  delay_condition = lambda cycle_counter, cycle_time: cycle_counter * cycle_time < #some number of delay_seconds#
+
+So that they would take in different number of parameters. But C would not allow this practice since the type and the number of parameters are fixed for the placeholder *drive_condition. A clumsy, but nevertheless straightforward solution, is to pass to the criterion function bound to *drive_condition all parameters for all criterion functions, and let the criterion function selects for itself whichever that is relevant. That is, regardless of the criterion to *drive_condition, we pass in current_ticks, cycle_counter, and cycle_time.
+
+The actual strategy I adopted was much more convoluted, but the basic idea is the same.
+
+// 17:20 (No code here, just some cleaning & general thoughts)
+Moved legacy functions to a separate file (1629 Nov 17 legacy.c)
+Lines of code shrank from 400+ to 280.
+
+
+Two methods to map the wall.
+1. Walk around the wall by continuously bumping into it and short arc cruising.
+	Issues:
+	- Have to assume the world is rectangular. Not scalable. Not a problem for this lab, though.
+	- Robot is walking in arcs, how to compute straight distance?
+
+2. Never assume that the boundary is a simple rectangle. Start with the assumption that the boundary is triangular by bumping into wall three times. Then approximate the boundary by adding vertices. The world is thus approximated by a n-polygon, where n can be set to be some large number, or n is limited by how much resource it can affords to explore.
+	Issues:
+	- Time consuming. Have to cover a lot of distances. But can make additional assumptions about corners reduce time complexity.
+
+
+See photos in "Nov 17" folder for the math & algorithm involved in each method.
+
+  /*-----------------*/
+ /*  Lab 4: NOV 20  */
+/*-----------------*/
+
+// 15:24
+- Discussed various strategies for wall mapping. The first strategy above turned out to be impossible. One of the key parameter in the equation was assumed, but actually could not be obtained. Decided to use the simplest one: no arc cruise, no polygon, just walk straight around walls and record when the robot hits the corner. There is problem with this approach either: what if the robot did not start out facing straight ahead? Suppose there's a five-degree error in the initial orientation. Then this error would persist through each turn at the four corners, and can interact with errors from the Turn function. Could end up with an imprecise map of the world, which the object mapping is based on (no to mention that object mapping may introduce additional error as well).
+- Implemented codes that update current coordinate
+- Fixed a few bugs in WallFollowing and WallMapping.
+
+To-Do:
+- Test WallMapping() is working properly.
+- Add object mapping
